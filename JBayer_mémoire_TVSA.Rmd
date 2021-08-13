@@ -1,0 +1,860 @@
+---
+title: "JB_Master_Thesis_TVSA"
+output: html_document
+---
+
+# Chargement des packages nécessaires
+```{r include=FALSE}
+library(dplyr)
+library(tidyverse)
+library(readxl)
+library(here)
+library(lubridate)
+library(ggplot2)
+library(kableExtra)
+library(xts)
+library(fpp2)
+library(zoo)
+library(randomForest)
+library(dygraphs)
+library(plotly)
+library(WriteXLS)
+library(here)
+library(ggpubr)
+library(gridExtra)
+library(cowplot)
+library(grid)
+library(modelr)
+library(broom)
+library(ggrepel)
+library(forcats)
+library(ISLR)
+library(tinytex)
+library(rmarkdown)
+library(randomForest)
+library(fabletools)
+library(qpcR)
+library(neuralnet)
+```
+
+### Préparation des données
+
+# Importatation des données de Téléverbier SA
+```{r include=FALSE}
+TVSA_data <- read_excel(path = "data/TV_SA_propre.xlsx", sheet = 2)
+```
+
+# Ajout du jour de la semaine
+```{r include=FALSE}
+TVSA_data$date <- ymd(TVSA_data$date)
+TVSA_data$jour <- wday(TVSA_data$date)
+
+```
+
+#Importation des données météos de chaque station
+```{r include=FALSE}
+
+#Grande Dixence
+VSGDX <- read_excel("data/meteo_data.xls")
+
+#Fionnay
+FIO <- read_excel("data/meteo_data.xls", sheet = 2)
+
+#Hérémence
+HER <- read_excel("data/meteo_data.xls", sheet = 3)
+
+#Iserables
+VSISE <- read_excel("data/meteo_data.xls", sheet = 4)
+
+#Les Attelas
+ATT <- read_excel("data/meteo_data.xls", sheet = 5)
+
+#Les Attelas 2
+SLFATT <- read_excel("data/meteo_data.xls", sheet = 6)
+
+#Les Collons
+VSCOL <- read_excel("data/meteo_data.xls", sheet = 7)
+
+#Les Ruinettes
+SLF4RU <- read_excel("data/meteo_data.xls", sheet = 8)
+
+#Mont-Gelé
+PERLAP <- read_excel("data/meteo_data.xls", sheet = 9)
+
+#Montagnier Bagnes
+MOB <- read_excel("data/meteo_data.xls", sheet = 10)
+
+#Nendaz
+VSNEN <- read_excel("data/meteo_data.xls", sheet = 11)
+
+#Nendaz Combatzelines
+SLFNE3 <- read_excel("data/meteo_data.xls", sheet = 12)
+
+#Nendaz Creppon Blanc
+SLFNEN <- read_excel("data/meteo_data.xls", sheet = 13)
+```
+
+#Join de chaque table en une seule table commune appelée "meteo_data"
+```{r include=FALSE}
+meteo_data <- left_join(VSGDX, FIO, by = "time")
+meteo_data <- left_join(meteo_data, HER, by = "time")
+meteo_data <- left_join(meteo_data, VSISE, by = "time")
+meteo_data <- left_join(meteo_data, ATT, by = "time")
+meteo_data <- left_join(meteo_data, SLFATT, by = "time")
+meteo_data <- left_join(meteo_data, VSCOL, by = "time")
+meteo_data <- left_join(meteo_data, SLF4RU, by = "time")
+meteo_data <- left_join(meteo_data, PERLAP, by = "time")
+meteo_data <- left_join(meteo_data, VSNEN, by = "time")
+meteo_data <- left_join(meteo_data, SLFNE3, by = "time")
+meteo_data <- left_join(meteo_data, SLFNEN, by = "time")
+```
+
+#Créations des varaibles utilisées dans l'analyse en faisant la moyenne des mesures de chaque station
+```{r include=FALSE}
+
+#création de la table "meteo_data
+df <- as.data.frame(meteo_data)
+
+df[,3:76] <- as.numeric(((unlist(df[,3:76]))))
+
+#calcul des moyennes pour chaque variable
+
+#moyenne précipitation (mm)
+df <- df %>% mutate(precipitation = rowMeans(df[,c(5,15,28,47,69)], na.rm = T))
+
+#moyenne neige fraiche (cm)
+df <- df %>% mutate(neige_fraiche = rowMeans(df[,c(12,23,54)], na.rm = T))
+
+#moyenne hauteur neige (cm)
+df <- df %>% mutate(hauteur_neige_moy = rowMeans(df[,c(16,43,55)], na.rm = T))
+
+#moyenne température min_journalier
+df <- df %>% mutate(temperature_min_moy = rowMeans(df[,c(34, 42, 72, 76)], na.rm = T))
+
+#moyenne température max_journalier
+df <- df %>% mutate(temperature_max_moy = rowMeans(df[,c(33, 41, 71, 75)], na.rm = T))
+
+#moyenne neige fraiche 2j
+df <- df %>% mutate(neige_fraiche_2j = rowMeans(df[,c(8, 19, 50)], na.rm = T))
+
+#moyenne neige fraiche 5j
+df <- df %>% mutate(neige_fraiche_5j = rowMeans(df[,c(11, 22, 53)], na.rm = T))
+
+#moyenne neige fraiche 10j
+df <- df %>% mutate(neige_fraiche_10j = rowMeans(df[,c(7, 18, 49)], na.rm = T))
+
+
+meteo_clean <-df[,c(2, 39, 77:84)]
+
+#renommer les variables
+names(meteo_clean)[c(1:7)] <- c("date","ensoleillement_journalier_h", "precipitation", "neige_fraiche", "hauteur_neige_moy", "temperature_min_moy", "temperature_max_moy")
+
+#arondir les mesures
+meteo_clean[c(2:10)] <- meteo_clean[c(2:10)] %>%
+  round(digits = 3)
+
+#Suppression des datasets inutiles
+remove(VSGDX, FIO, HER, VSISE, ATT, SLFATT, VSCOL, SLF4RU, PERLAP, MOB, VSNEN, SLFNE3, SLFNEN, df)
+
+```
+
+#Join des données de téléverbier avec les données météos
+```{r include=FALSE}
+TVSA_data <- left_join(TVSA_data, meteo_clean, by = "date")
+
+#Suppression des datasets
+remove(meteo_clean, meteo_data)
+```
+
+#Transformation des données
+```{r include=FALSE}
+#Suppression de la saison 19-20 pour éviter les biais dûs à la fermeture prématurée
+TVSA_journee_unb <- TVSA_data %>%
+  filter_all(all_vars(saison != "saison 19-20"))
+
+#Création du facteur semaine/weekend
+TVSA_journee_unb$jour_factor <- ifelse(TVSA_journee_unb$jour == 1 | TVSA_journee_unb$jour == 7, "weekend", "semaine")
+
+#Création du facteur début/haute/fin saison
+TVSA_journee_unb$date_factor <- ifelse(month(TVSA_journee_unb$date)== "10" | month(TVSA_journee_unb$date) == "11", "debut_saison", ifelse(month(TVSA_journee_unb$date)=="4" | month(TVSA_journee_unb$date) == "5", "fin_saison", "haute_saison"))
+
+TVSA_journee_unb$vacances <- ifelse(is.na(TVSA_journee_unb$vacances)== T, "no_vac", TVSA_journee_unb$vacances)
+
+#Transformation des colonnes nécessaires en facteurs
+TVSA_journee_unb <- TVSA_journee_unb %>% mutate_if(is.character, as.factor)
+
+
+#filtre pour selectionner les journées avec plus de 100 passages aux bornes
+TVSA_journee_unb <- TVSA_journee_unb %>%
+  filter(passages > 100)
+
+#ajout du mois de l'année
+TVSA_journee_unb$mois <- month(TVSA_journee_unb$date)
+
+#conversion des mois en facteur
+TVSA_journee_unb$mois <- as.factor(TVSA_journee_unb$mois)
+
+```
+
+### EDA
+
+#Summary
+```{r eval=FALSE, include=FALSE}
+TVSA_data %>%
+  summary()
+```
+
+# Tableau 6 : Résumé de la situation historique
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+#nombre de journée ouverte (avec plus de 100 passages) par saison
+journee_ouverte <- TVSA_data %>%
+  filter(passages > 100) %>%
+  group_by(saison) %>%
+  count()
+
+#nombre de "journée skieur" moyen par jour pour chaque saison
+journee_saison <- TVSA_data %>%
+  group_by(saison) %>%
+  summarise(`journée saison` = sum(`journée skieur`)) 
+
+#creation info saison
+info_saison <- merge(journee_ouverte, journee_saison)
+
+info_saison$moyenne <-round(info_saison$`journée saison`/info_saison$n,digits = 0)
+
+info_saison$`journée saison` <- journee_saison$`journée saison`%>% prettyNum(big.mark = "'")
+info_saison$moyenne <- info_saison$moyenne %>% prettyNum(big.mark = "'")
+
+info_saison$mars <- c(859637, 819964, 771515, 820971, 843241, 899201, 930364, 714494) 
+
+info_saison <- as.data.frame(info_saison)
+info_saison <- info_saison[c(1,2,3,5,4)]
+
+info_saison$mars <- info_saison$mars %>% prettyNum(big.mark = "'")
+
+info_saison %>% 
+  kable(align = "lcccc",  col.names = c("Saison", "Journées ouvertes", "Nombre de skieurs","Situation au 13 mars", "Moyenne journalière")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover")) %>%
+  row_spec(7:8, background = "skyblue")
+  
+#Suppression des dataframe
+remove(journee_ouverte)
+remove(journee_saison)
+```
+
+#Figure 2 : Nombre de skieurs par saison entre 2013 et 2021
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#nombre de jours par saison
+TVSA_data_1 <- TVSA_data
+  
+TVSA_data_1[TVSA_data_1 == 0] <- NA
+
+TVSA_data_1[1:4] %>%
+  group_by(saison) %>%
+  na.omit() %>% count()
+
+#nombre de journées skieurs au total
+TVSA_data_1 %>%
+  summarise(sum(TVSA_data_1$`journée skieur`, na.rm = T))
+
+#nombre de journées skieurs par saison
+TVSA_data %>%
+  group_by(saison) %>%
+  summarise(`journée saison` = sum(`journée skieur`))
+
+#Coloration des saison 19-20 et 20-21 pour le plot
+TVSA_data$color <- ifelse(TVSA_data$saison == "saison 19-20" | TVSA_data$saison == "saison 20-21", "skyblue", "steelblue3") 
+  
+  
+#plot
+TVSA_data %>%
+  group_by(saison, color) %>%
+  summarise(`journée saison` = sum(`journée skieur`)) %>%
+  ggplot(aes(saison, `journée saison`, fill =color)) +
+  geom_col() +
+  theme_bw() +
+  labs(title ="", x = "Saison", y = "Journées skieurs") +
+  scale_x_discrete()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  scale_fill_identity()
+```
+
+#Figure 3 : la saisonnalité d'une saison de ski
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#filtre de la saison 18-19
+s18_19 <- TVSA_data %>%
+  filter(saison == "saison 18-19") 
+
+#calcul de MA
+s18_19 <- s18_19 %>%
+  mutate(septMA = (zoo::rollmean(`journée skieur`, k = 7, fill = NA)),
+                  deuxhuitMA =(zoo::rollmean(`journée skieur`, k = 28, fill = NA)))
+
+#Conversion de la date
+s18_19$date <- as.Date(s18_19$date)
+
+#Plot
+p<-s18_19 %>%
+ggplot() +
+  geom_line(aes(x = date, y = `journée skieur`, fill = "Journées skieurs"), color = "steelblue3") +
+  geom_line(aes(x = date, y = septMA, fill = "7-MA"), color = "red")+
+   geom_line(aes(x = date, y = deuxhuitMA, fill = "28-MA"), color = "yellow")+
+  xlab("mois") + 
+  ylab("journées skieurs") + 
+  ggtitle("Evolution des journées skieurs durant la saison 18-19")+
+  scale_x_date(date_breaks = "months", date_labels = "%b") +
+  theme_bw()
+  
+
+ggplotly(p, width = 1000)
+
+#Suppression des dataframe
+remove(p)
+remove(s18_19)
+```
+
+#Figure 4 : La saison 20-21 impactée par les restrictions sanitaires 
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#Création de la fonction MA
+ma <- function(x, n = 7){stats::filter(x, rep(1 / n, n), sides = 2)}
+
+#Calcul du MA pour la saison 13-14
+s13 <- TVSA_data %>%
+  filter(saison == "saison 13-14") 
+
+s13 <- s13[,c(3)]
+
+s13 <- s13 %>%
+  ma %>%
+  as.data.frame()
+
+#Calcul du MA pour la saison 14-15
+s14 <- TVSA_data %>%
+  filter(saison == "saison 14-15") 
+
+s14 <- s14[,c(3)]
+
+s14 <- s14 %>%
+  ma %>%
+  as.data.frame()
+
+#Calcul du MA pour la saison 15-16
+s15 <- TVSA_data %>%
+  filter(saison == "saison 15-16") 
+
+s15 <- s15[,c(3)]
+
+s15 <- s15 %>%
+  ma %>%
+  as.data.frame()
+
+#Calcul du MA pour la saison 16-17
+s16 <- TVSA_data %>%
+  filter(saison == "saison 16-17") 
+
+s16 <- s16[,c(3)]
+
+s16 <- s16 %>%
+  ma %>%
+  as.data.frame()
+
+#Calcul du MA pour la saison 17-18
+s17 <- TVSA_data %>%
+  filter(saison == "saison 17-18") 
+
+s17 <- s17[,c(3)]
+
+s17 <- s17 %>%
+  ma %>%
+  as.data.frame()
+
+#Calcul du MA pour la saison 18-19
+s18 <- TVSA_data %>%
+  filter(saison == "saison 18-19") 
+
+s18 <- s18[,c(3)]
+
+s18 <- s18 %>%
+  ma %>%
+  as.data.frame()
+
+#Calcul du MA pour la saison 19-20
+s19 <- TVSA_data %>%
+  filter(saison == "saison 19-20") 
+
+s19 <- s19[,c(3)]
+
+s19 <- s19 %>%
+  ma %>%
+  as.data.frame()
+
+#Calcul du MA pour la saison 20-21
+
+s20 <- TVSA_data %>%
+  filter(saison == "saison 20-21") 
+
+s20 <- s20[,c(3)]
+
+s20 <- s20 %>%
+  ma %>%
+  as.data.frame()
+
+#Combinaison du MA de chaque saison dans une unique table, ainsi que le numéro du jour
+
+jours <-1:187
+
+s <- qpcR:::cbind.na(s13, s14, s15, s16, s17, s18, s19, s20, jours)
+
+colnames(s) <- c("saison 13-14", "saison 14-15", "saison 15-16", "saison 16-17", "saison 17-18", "saison 18-19","saison 19-20", "saison 20-21", "jours")
+
+#plot
+p <- s %>%
+ggplot()+
+  geom_line(aes(jours,`saison 13-14`, color = "saison 13-14")) +
+  geom_line(aes(jours,`saison 14-15`, color = "saison 14-15")) +
+  geom_line(aes(jours,`saison 15-16`, color = "saison 15-16")) +
+  geom_line(aes(jours,`saison 16-17`, color = "saison 16-17")) +
+  geom_line(aes(jours,`saison 17-18`, color = "saison 17-18")) +
+  geom_line(aes(jours,`saison 18-19`, color = "saison 18-19")) +
+  geom_line(aes(jours,`saison 19-20`, color = "saison 19-20")) +
+  geom_line(aes(jours,`saison 20-21`, color = "saison 20-21")) +
+  scale_colour_discrete("")+
+  theme_bw() +
+  labs(title = "7-MA journées skieurs par saison", x = "jour de la saison", y = "journées skieurs")
+
+ggplotly(p, width = 800)
+
+#Suppression des dataframe
+remove(s13,s14,s15,s16,s17,s18,s19,s20,s,p,jours)
+```
+
+#Figure 5 : Moyenne des journées skieurs par mois
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#"journée skieur" moyen par mois
+
+#Exclusion de la saison 19-20
+mois_abo <- TVSA_data %>%
+  filter(saison == c("saison 13-14", "saison 14-15", "saison 15-16", "saison 16-17", "saison 17-18", "saison 18-19", "saison 20-21")) %>%
+  group_by(month(date)) %>%
+  summarise(abo_mensuels =round(sum(`journée skieur`)/7, 0))
+
+#Renommer les colonnes
+mois_abo$mois <- c("janvier", "fevrier", "mars", "avril", "octobre", "novembre", "décembre")
+
+#enlever la colonne month(date)
+mois_abo <- subset(mois_abo, select = -(`month(date)`))
+
+#reorganisation
+mois_abo$mois <- factor(mois_abo$mois,levels = c("octobre", "novembre", "décembre", "janvier", "fevrier", "mars", "avril"))
+
+#plot
+mois_abo %>%
+  ggplot(aes(mois, abo_mensuels)) +
+  geom_col(fill="steelblue3") +
+  labs(title ="", x = "Mois", y = "Journées skieurs") + 
+  theme_bw()
+  
+#Suppression des dataframe
+remove(mois_abo)
+
+```
+
+#Figure 6 : Moyenne des journées skieurs par jour de la semaine
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#calcul d'apparition de chaque jour de la semaine
+nb_jour <- TVSA_data_1[,c(1,2,3,4,6)] %>%
+  group_by(jour) %>%
+  na.omit() %>% count()
+
+#calcul du nombre journées skieurs
+journee_abo <- TVSA_data %>%
+  group_by(jour) %>%
+  summarise(`journee_abo` = sum(`journée skieur`))
+
+
+#Merge des 2 tables
+journee_abo <- merge(journee_abo, nb_jour)
+
+#scale
+journee_abo$scaled_journee_abo <- round(journee_abo$journee_abo/journee_abo$n, digits = 0)
+
+#réorganisation des jours
+journee_abo$jour <- c("dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi")
+
+journee_abo$jour <- factor(journee_abo$jour, levels = c("lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"))
+
+#plot
+journee_abo %>%
+  ggplot() +
+  geom_col(aes(jour, scaled_journee_abo), fill="steelblue3") +
+  labs(title ="", x = "Jour", y = "Journées skieurs") +
+  theme_bw()
+
+#Suppression des dataframe
+remove(nb_jour, journee_abo)
+```
+
+#Figure 8 : l'effet des vacances scolaires
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+ggplot(TVSA_journee_unb) +
+  geom_boxplot(aes(reorder(vacances, `journée skieur`),`journée skieur`), fill = "steelblue3") + 
+  theme_bw() +
+  labs(x="vacances", y="journées skieurs")
+```
+
+#Figure 9 : Distribution des journées skieur
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+lines <- data.frame(
+intercepts = c(5877, 6726),
+names = c("Moyenne = 5877", "Médiane = 6726")
+)
+ 
+ggplot(TVSA_journee_unb) +
+  geom_histogram(aes(`journée skieur`), fill ="steelblue3") +
+  labs(x = "journées skieurs", y = "nombre d'observations") +
+  geom_vline(data = lines,
+    aes(xintercept = intercepts, color = names))  +
+  scale_color_manual(name = "",values=c("Moyenne = 5877" = 'red', "Médiane = 6726" = 'yellow')) +
+  theme_bw()
+
+```
+
+#Figure 10 : relation entre les passages aux bornes et le nombre de skieurs
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#plot
+qplot(`journée skieur`, 
+      passages, 
+      data = TVSA_data, 
+      geom = c("point", "smooth")) +
+  theme_bw() +
+  annotate(x = 2500, y = 165000,
+         label=paste("Correlation = ", round(cor(TVSA_data$passages, TVSA_data$`journée skieur`),2)), 
+         geom="text", size=4) +
+  labs(x = "journées skieurs", y = "passages aux bornes")
+
+```
+
+#Figure 11 : Effet de la température sur les journées skieurs et corrélation
+```{r}
+#plot
+ggplot(TVSA_journee_unb) +
+  geom_point(aes(`journée skieur`, temperature_min_moy), color = "red", size = 0.8)+
+    geom_smooth(aes(`journée skieur`, temperature_min_moy), color = "blue") +
+  theme_bw() +
+  labs(y = "temperature minimum du jour (°C)", x = "journées skieurs")
+
+#corrélation
+cor(TVSA_journee_unb$`journée skieur`, TVSA_journee_unb$temperature_min_moy)
+```
+
+#Figure 12 : Effet des précipitations sur les journées skieurs et corrélation
+```{r}
+#filtre des journées avec plus de 1mm de précipitation
+TVSA_journee_unb_1 <- TVSA_journee_unb %>%
+  filter(precipitation > 1)
+
+#plot
+ggplot(TVSA_journee_unb_1) +
+  geom_point(aes(`journée skieur`,precipitation), color = "red", size = 1) +
+  geom_smooth(aes(`journée skieur`, precipitation), color = "blue") +
+  theme_bw() +
+  labs(y="précipitations (mm)", x = "journées skieurs")
+
+#corrélation
+cor(TVSA_journee_unb$precipitation, TVSA_journee_unb$`journée skieur`)
+
+#Suppression des dataframe
+remove(TVSA_journee_unb_1)
+```
+
+#Figure 13 : Effet de la neige fraîche sur les journées skieurs
+```{r}
+#filtre des journées avec  plus de 1mm de neige fraiche
+TVSA_journee_unb_1 <- TVSA_journee_unb %>%
+  filter(neige_fraiche>1)
+
+#plot
+ggplot(TVSA_journee_unb_1) +
+  geom_point(aes(`journée skieur`, neige_fraiche), color = "red", size = 0.8)+
+    geom_smooth(aes(`journée skieur`, neige_fraiche), color = "blue") +
+  theme_bw() +
+  labs(y="neige fraiche 24h (cm)", x = "journées skieurs")
+
+#corrélation
+cor(TVSA_journee_unb$precipitation, TVSA_journee_unb$neige_fraiche)
+
+remove(TVSA_journee_unb_1)
+```
+
+#Figure 14 : Effet de la hauteur totale de neige sur les journées skieurs et corrélation
+```{r}
+#plot
+ggplot(TVSA_journee_unb) +
+  geom_point(aes(`journée skieur`, hauteur_neige_moy), color = "red", size = 0.8)+
+    geom_smooth(aes(`journée skieur`, hauteur_neige_moy), color = "blue") +
+  theme_bw() +
+  labs(y="hauteur neige (cm)", x = "journées skieurs")
+
+#corrélation
+cor(TVSA_journee_unb$`journée skieur`, TVSA_journee_unb$hauteur_neige_moy)
+```
+
+#Figure 15 : Effet de l'ensoleillement sur les journées skieurs
+```{r}
+#plot
+TVSA_journee_unb %>%
+  filter(ensoleillement_journalier_h>0) %>%
+ggplot() +
+  geom_point(aes(`journée skieur`, ensoleillement_journalier_h), color = "red", size = 0.8)+
+    geom_smooth(aes(`journée skieur`, ensoleillement_journalier_h), color = "blue") +
+  theme_bw() +
+  labs(y = "heures d'ensoleillement journalier (heures)", x = "journées skieurs")
+
+#corrélation
+cor(TVSA_journee_unb$ensoleillement_journalier_h, TVSA_journee_unb$`journée skieur`, use = "complete.obs")
+```
+### Modèle de regression linéaire
+
+#Modèle de base
+```{r}
+reg <- lm(formula =`journée skieur` ~jour_factor + mois, data = TVSA_journee_unb)
+
+summary(reg)
+```
+
+#Ajout des vacances
+```{r}
+reg <- lm(formula =`journée skieur` ~jour_factor + mois + vacances , data = TVSA_journee_unb)
+  
+summary(reg)
+```
+
+# Ajout des données météorologiques
+```{r}
+reg <- lm(`journée skieur`~ jour_factor + mois + vacances + precipitation + hauteur_neige_moy  + ensoleillement_journalier_h, data = TVSA_journee_unb)
+
+summary(reg)
+```
+
+## Ajout de paramètres supplémentaires
+
+#Meilleurs jours
+```{r}
+reg <- lm(`journée skieur`~ jour_factor + mois + vacances + precipitation + hauteur_neige_moy  + ensoleillement_journalier_h*jour_factor*neige_fraiche_5j, data = TVSA_journee_unb)
+
+summary(reg)
+```
+
+#création d'un lag de 365 jours
+```{r}
+
+calendar <- seq(as.Date("2013-10-30"), as.Date("2021-04-30"), by="days")
+
+calendar <- as.data.frame(calendar)
+
+names(calendar)[names(calendar) == "calendar"] <- "date"
+
+calendar <- left_join(calendar, TVSA_journee_unb, by = "date")
+
+calendar$lag365 <- calendar$`journée skieur` %>% lag(n = 365)
+
+calendar <- calendar[!is.na(calendar$`journée skieur`), ]
+
+calendar_log <- calendar
+```
+
+#Effet de l'année précédente (lag365)
+```{r}
+reg <- lm(`journée skieur`~ jour_factor + mois + vacances + precipitation + hauteur_neige_moy + ensoleillement_journalier_h + lag365, data = calendar)
+
+summary(reg)
+```
+
+#Modèle sur base logarithmique
+```{r}
+calendar_log$lag365[calendar_log$lag365 == 0] <- 1
+
+reg <- lm(log(`journée skieur`)~ jour_factor+ vacances + mois+ precipitation + hauteur_neige_moy + log(lag365), data = calendar_log)
+
+summary(reg)
+```
+
+### Cross-validation sur les modèles
+
+#Division en training et test set
+```{r}
+#set seed
+set.seed(777)
+
+#conversion des NAs en 0 afin de 
+calendar[is.na(calendar)] <- 0
+
+#selection des colonnes sans la saison, la date et les passages
+tvsa_ml <- calendar[-c(1,2,4)]
+
+#définition du set d'entrainement de 80% des données
+sample_size = floor(0.8*nrow(tvsa_ml))
+
+#80% des données sont prises aléatoirement
+picked = sample(seq_len(nrow(tvsa_ml)),size = sample_size)
+
+#Définition du training et du test set
+df.tr =tvsa_ml[picked,]
+df.ts =tvsa_ml[-picked,]
+```
+
+#Regression linéaire
+```{r}
+#paramétrage des coefficients du modèle sur le set d'entrainement
+model.mr <- lm(`journée skieur`~ jour_factor+ mois + vacances + precipitation + hauteur_neige_moy + ensoleillement_journalier_h + lag365, data = df.tr)
+
+#prédiction sur le set de test
+pred.mr <- predict(model.mr, newdata = df.ts)
+
+#création d'un data frame pour comparer les prédictions et les observations
+mr <- data.frame(df.ts$`journée skieur`, pred.mr)
+
+
+#plot
+ggplot(data = mr, mapping = aes(x = df.ts..journée.skieur., y = pred.mr)) +
+  geom_point(size = 0.7) +
+  geom_abline(intercept = 0, slope = 1, color = "red") +
+  annotate(geom = "text", x = 18000, y = 2500, color = "red",
+           label = paste0("RMSE: ", round(ModelMetrics::rmse(actual = mr$df.ts..journée.skieur.,predicted = mr$pred.mr), digits = 1))) +
+  theme_bw() +
+  labs(x = "Journées skieurs observées", y = "Journées skieurs prédites")
+
+```
+
+#Division en training et test set pour le modèle log
+```{r}
+#set seed
+set.seed(777)
+
+#conversion des NAs en 0 afin de 
+calendar_log[is.na(calendar_log)] <- 0
+
+#toutes les journées de l'année précédente égales à 0 sont fixées à 1 afin de pouvoir faire fonctionner notre log
+calendar_log$lag365[calendar_log$lag365 == 0] <- 1
+
+#selection des colonnes sans la saison, la date et les passages
+tvsa_ml <- calendar_log[-c(1,2,4)]
+
+#définition du set d'entrainement de 80% des données
+sample_size = floor(0.8*nrow(tvsa_ml))
+
+#80% des données sont prises aléatoirement
+picked = sample(seq_len(nrow(tvsa_ml)),size = sample_size)
+
+#Définition du training et du test set
+df.tr_log =tvsa_ml[picked,]
+df.ts_log =tvsa_ml[-picked,]
+```
+
+#Regression linéaire log
+```{r}
+
+#paramétrage des coefficients du modèle sur le set d'entrainement
+model.mr <- lm(log(`journée skieur`)~ jour_factor+ vacances + mois+ precipitation + hauteur_neige_moy + log(lag365), data = df.tr_log)
+
+#prédiction sur le set de test
+pred.mr <- predict(model.mr, newdata = df.ts_log)
+
+#création d'un data frame pour comparer les prédictions et les observations, les prédictions sont mises soous forme exp() afin de pouvoir les comparer
+mr <- data.frame(df.ts$`journée skieur`, exp(pred.mr))
+
+
+#plot
+ggplot(data = mr, mapping = aes(x = df.ts..journée.skieur., y = exp.pred.mr.)) +
+  geom_point(size = 0.7) +
+  geom_abline(intercept = 0, slope = 1, color = "red") +
+  annotate(geom = "text", x = 18000, y = 2500, color = "red",
+           label = paste0("RMSE: ", round(ModelMetrics::rmse(actual = mr$df.ts..journée.skieur.,predicted = mr$exp.pred.mr., digits = 1))) )+
+  theme_bw() +
+  labs(x = "Journées skieurs observées", y = "Journées skieurs prédites")
+```
+
+#Random forest
+```{r}
+#entrainement du modèle sur le set d'entrainement
+tvsa.rf <- randomForest(`journée skieur`~., data=df.tr, ntree=1500, importance=T, keep.inbag = T)
+
+#prédiction sur le set de test
+pred.rf <- predict(tvsa.rf, newdata=df.ts)
+
+#création d'un data frame pour comparer les prédictions et les observations
+rf <- data.frame(df.ts$`journée skieur`, pred.rf)
+
+#plot
+ggplot(data = rf, mapping = aes(x = rf$df.ts..journée.skieur., y = rf$pred.rf)) +
+  geom_point(size = 0.7) +
+  geom_abline(intercept = 0, slope = 1, color = "red") +
+  annotate(geom = "text", x = 18000, y = 2500, color = "red",
+           label = paste0("RMSE: ", round(ModelMetrics::rmse(actual = rf$df.ts..journée.skieur., predicted = rf$pred.rf), digits = 1)))+
+  theme_bw() +
+  labs(x = "Journées skieurs observées", y = "Journées skieurs prédites")
+
+accuracy(rf$df.ts..journée.skieur., rf$pred.rf)
+```
+
+#Neural Network
+```{r}
+#set seed
+set.seed(777)
+
+
+#conversion des facteurs en valeurs numériques pour l'utilisation en NN
+tvsa_NN <- tvsa_ml
+tvsa_NN <- tvsa_NN %>% mutate_if(is.factor, as.numeric)
+
+
+#définition du set d'entrainement de 80% des données
+sample_size = floor(0.8*nrow(tvsa_NN))
+
+## Scale des données pour le neural network
+max = apply(tvsa_NN , 2 , max)
+min = apply(tvsa_NN, 2 , min)
+scaled = as.data.frame(scale(tvsa_NN, center = min, scale = max - min))
+
+
+#80% des données sont prises aléatoirement
+picked = sample(seq_len(nrow(tvsa_NN)),size = sample_size)
+NN.tr =scaled[picked,]
+NN.ts =scaled[-picked,]
+
+#entrainement du modèle sur le set d'entrainement
+nn <- neuralnet(`journée skieur`~.,data=NN.tr, hidden=c(6,4,2), act.fct = "logistic", linear.output = F)
+
+#prédiction sur le set de test
+pred.nn <- compute(nn,NN.ts)
+
+#scale des données
+pred.nn <- (pred.nn$net.result * (max(tvsa_NN$`journée skieur`) - min(tvsa_NN$`journée skieur`))) + min(tvsa_NN$`journée skieur`)
+
+#conversion afin de revenir à l'echelle initiale
+NN.ts <- (NN.ts * (max(tvsa_NN$`journée skieur`) - min(tvsa_NN$`journée skieur`))) + min(tvsa_NN$`journée skieur`)
+
+#création d'un data frame pour comparer les prédictions et les observations
+df <- data.frame(NN.ts$`journée skieur`, pred.nn)
+
+#plot
+ggplot() +
+  geom_point(aes(NN.ts$`journée skieur`, pred.nn), size = 0.7) +
+  geom_abline(intercept = 0, slope = 1, color = "red") +
+  annotate(geom = "text", x = 18000, y = 2500, color = "red",
+           label = paste0("RMSE: ", round(ModelMetrics::rmse(actual = df$NN.ts..journée.skieur.,predicted = df$pred.nn, digits = 1))) )+
+  theme_bw() +
+  labs(x = "Journées skieurs observées", y = "Journées skieurs prédites")
+
+
+#plot de l'illustration du NN
+plot(nn)
+```
+
+
+
+
+
+
+
